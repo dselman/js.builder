@@ -11,3 +11,85 @@ following features:
 	your server and client code for example.
 	
 2.	Automatically upload modified files to a remote server using scp (still under development).
+
+Usage
+-----
+
+Create a WST JavaScript project. The project will have the Eclipse Nature: 
+org.eclipse.wst.jsdt.core.jsNature. You should then right-click on the project and
+select "Add/Remove JavaScript Nature" which will add the org.selman.js.builder.javaScriptNature
+project nature as well as the org.selman.js.builder.javaScriptBuilder project Builder.
+
+Once the nature and project builder are installed on your project you can start to add the
+@copyTo tags.
+
+E.g. create a file called common.js containing the following:
+
+
+/**
+ * @copyTo client.js
+ */
+function testClient() {
+	var baz = "";
+}
+
+/**
+ * @copyTo server.js
+ */
+function testServer2() {
+	var baz = "";
+}
+
+
+Create a file called client.js containing the following:
+
+
+/**
+ * This is a test...
+ */
+function myClientFunction() {
+	// do stuff
+}
+
+And a file called server.js containing the following:
+
+
+/**
+ * This is a test...
+ */
+function myServerFunction() {
+	// do stuff
+}
+
+If you perform a clean build (or edit common.js) you should see that client.js now looks like this:
+
+
+/**
+ * This is a test...
+ */
+function myClientFunction() {
+	// do stuff
+}
+
+/**
+ * @generatedFrom /test/common.js
+ */
+function testClient() {
+	var baz = "";
+}
+
+While server.js looks like this:
+
+/**
+ * This is a test...
+ */
+function myServerFunction() {
+	// do stuff
+}
+
+/**
+ * @generatedFrom /test/common.js
+ */
+function testServer2() {
+	var baz = "";
+}

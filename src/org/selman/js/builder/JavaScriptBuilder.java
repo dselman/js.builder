@@ -28,6 +28,7 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.text.edits.MalformedTreeException;
@@ -38,7 +39,6 @@ import org.eclipse.wst.jsdt.core.IJavaScriptProject;
 import org.eclipse.wst.jsdt.core.IJavaScriptUnit;
 import org.eclipse.wst.jsdt.core.ISourceRange;
 import org.eclipse.wst.jsdt.core.JavaScriptCore;
-import org.eclipse.wst.jsdt.core.JavaScriptModelException;
 import org.eclipse.wst.jsdt.core.dom.AST;
 import org.eclipse.wst.jsdt.core.dom.ASTNode;
 import org.eclipse.wst.jsdt.core.dom.ASTParser;
@@ -86,13 +86,21 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 			IResource resource = delta.getResource();
 			switch (delta.getKind()) {
 			case IResourceDelta.ADDED:
-				process(resource);
+				try {
+					process(resource);
+				} catch (Exception e) {
+					throw new CoreException( new BuilderStatus( IStatus.ERROR, resource.getFullPath(), "Failed to build.", e ) );
+				}
 				break;
 			case IResourceDelta.REMOVED:
 				processRemovedResource( delta.getResource().getFullPath() );
 				break;
 			case IResourceDelta.CHANGED:
-				process(resource);
+				try {
+					process(resource);
+				} catch (Exception e) {
+					throw new CoreException( new BuilderStatus( IStatus.ERROR, resource.getFullPath(), "Failed to build.", e ) );
+				}
 				break;
 			}
 			//return true to continue visiting children.
@@ -108,8 +116,8 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 		public boolean visit(IResource resource) {
 			try {
 				process(resource);
-			} catch (JavaScriptModelException e) {
-				e.printStackTrace();
+			} catch (Exception e) {
+				throw new IllegalStateException( e );
 			}
 			//return true to continue visiting children.
 			return true;
@@ -254,9 +262,12 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 	 * as in error.
 	 * 
 	 * @param resource
-	 * @throws JavaScriptModelException
+	 * @throws org.eclipse.jface.text.BadLocationException 
+	 * @throws BadLocationException 
+	 * @throws CoreException 
+	 * @throws MalformedTreeException 
 	 */
-	void process(IResource resource) throws JavaScriptModelException {
+	void process(IResource resource) throws MalformedTreeException, CoreException, BadLocationException, org.eclipse.jface.text.BadLocationException {
 		if (resource instanceof IFile && JavaScriptCore.isJavaScriptLikeFileName(resource.getName())) {
 			IFile file = (IFile) resource;
 			deleteMarkers(file);
@@ -293,13 +304,9 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 								replaceCopyTo(newFunction,function);
 								destRoot.statements().add(newFunction);
 								
-								String newContent;
-								try {
-									newContent = evaluateRewrite(destUnit,destRoot);
-									destUnit.getBuffer().setContents(newContent);
-								} catch (Exception e) {
-									e.printStackTrace();
-								}
+								String newContent = evaluateRewrite(destUnit,destRoot);
+								destUnit.getBuffer().setContents(newContent);
+								destUnit.getBuffer().getOwner().save(null, true );
 							}
 						}
 					}
