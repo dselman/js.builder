@@ -1,0 +1,16 @@
+js.builder
+----------
+
+Introduction
+------------
+
+js.builder is an Eclipse Incremental Project Builder that adds the
+following features:
+
+1.	JavaScript functions can be copied from a source file to multiple destination files
+	using the '@copyTo foo.js,bar.js' JavaDoc tag syntax. The builder takes care of copying
+	the function to the destination files and will detect certain error conditions. This
+	feature is useful if you are doing node.js development and want to share functions between
+	your server and client code for example.
+	
+2.	Automatically upload modified files to a remote server using scp (still under development).
