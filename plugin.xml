@@ -53,5 +53,19 @@
             value="true">
       </persistent>
    </extension>
+   <extension
+         point="org.eclipse.ui.preferencePages">
+      <page
+            class="org.selman.js.builder.preferences.BuilderPreferencePage"
+            id="org.selman.js.builder.preferences.BuilderPreferencePage"
+            name="JavaScript Builder Preferences">
+      </page>
+   </extension>
+   <extension
+         point="org.eclipse.core.runtime.preferences">
+      <initializer
+            class="org.selman.js.builder.preferences.PreferenceInitializer">
+      </initializer>
+   </extension>
 
 </plugin>

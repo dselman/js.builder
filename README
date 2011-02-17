@@ -10,7 +10,11 @@ following features:
 	feature is useful if you are doing node.js development and want to share functions between
 	your server and client code for example.
 	
-2.	Automatically upload modified files to a remote server using scp (still under development).
+2.	Automatically upload modified files to a remote server using scp. Note that currently 
+	the remote directory structure must exist and that all files in the project will be uploaded.
+	Use the Eclipse preferences panel to enter authentication information for the remote server.
+	Currently only private key files are supported. scp has only been tested with remote
+	Amazon EC2 images running Ubuntu.
 
 Usage
 -----
@@ -24,7 +28,6 @@ Once the nature and project builder are installed on your project you can start 
 @copyTo tags.
 
 E.g. create a file called common.js containing the following:
-
 
 /**
  * @copyTo client.js
@@ -53,7 +56,6 @@ function myClientFunction() {
 
 And a file called server.js containing the following:
 
-
 /**
  * This is a test...
  */
@@ -62,7 +64,6 @@ function myServerFunction() {
 }
 
 If you perform a clean build (or edit common.js) you should see that client.js now looks like this:
-
 
 /**
  * This is a test...

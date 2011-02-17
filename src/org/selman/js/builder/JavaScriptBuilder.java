@@ -7,7 +7,7 @@
  *
  * Contributors:
  *    Daniel Selman - initial API and implementation and/or initial documentation
- *******************************************************************************/ 
+ *******************************************************************************/
 
 package org.selman.js.builder;
 
@@ -29,6 +29,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.text.Document;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.text.edits.MalformedTreeException;
@@ -47,39 +48,45 @@ import org.eclipse.wst.jsdt.core.dom.JSdoc;
 import org.eclipse.wst.jsdt.core.dom.JavaScriptUnit;
 import org.eclipse.wst.jsdt.core.dom.TagElement;
 import org.eclipse.wst.jsdt.core.dom.TextElement;
+import org.selman.js.builder.preferences.PreferenceConstants;
+import org.selman.scp.Scp;
 
 /**
- * A little IncrementalProjectBuilder for JavaScript projects that
- * adds the following useful features:
+ * A little IncrementalProjectBuilder for JavaScript projects that adds the
+ * following useful features:
  * <ul>
- *   <li>Copy functions between .js files</li>
- *   <li>Upload modified files using scp to a remote host</li>
+ * <li>Copy functions between .js files</li>
+ * <li>Upload modified files using scp to a remote host</li>
  * </ul>
+ * 
  * @author dselman
  */
 public class JavaScriptBuilder extends IncrementalProjectBuilder {
+	
+	private IPreferenceStore preferenceStore = Activator.getDefault().getPreferenceStore();
+	private Scp scp = new Scp();
 
 	private static final String COPY_TO = "@copyTo";
 
 	/**
-	 * JavaDoc tag that indicates that a Function was generated (copied)
-	 * from another Function.
+	 * JavaDoc tag that indicates that a Function was generated (copied) from
+	 * another Function.
 	 */
 	private static final String GENERATED_FROM = "@generatedFrom";
-	
+
 	/**
 	 * The Eclipse identifier for this builder.
 	 */
 	public static final String BUILDER_ID = "org.selman.js.builder.javaScriptBuilder";
-	
+
 	/**
 	 * The Eclipse identifier for problem markers
 	 */
 	private static final String MARKER_TYPE = "org.selman.js.builder.jsProblem";
 
 	/**
-	 * IResourceDeltaVisitor called when a resource in our project
-	 * is added, removed or changed.
+	 * IResourceDeltaVisitor called when a resource in our project is added,
+	 * removed or changed.
 	 */
 	class DeltaVisitor implements IResourceDeltaVisitor {
 		public boolean visit(IResourceDelta delta) throws CoreException {
@@ -89,43 +96,45 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 				try {
 					process(resource);
 				} catch (Exception e) {
-					throw new CoreException( new BuilderStatus( IStatus.ERROR, resource.getFullPath(), "Failed to build.", e ) );
+					throw new CoreException(new BuilderStatus(IStatus.ERROR,
+							resource.getFullPath(), "Failed to build.", e));
 				}
 				break;
 			case IResourceDelta.REMOVED:
-				processRemovedResource( delta.getResource().getFullPath() );
+				processRemovedResource(delta.getResource().getFullPath());
 				break;
 			case IResourceDelta.CHANGED:
 				try {
 					process(resource);
 				} catch (Exception e) {
-					throw new CoreException( new BuilderStatus( IStatus.ERROR, resource.getFullPath(), "Failed to build.", e ) );
+					throw new CoreException(new BuilderStatus(IStatus.ERROR,
+							resource.getFullPath(), "Failed to build.", e));
 				}
 				break;
 			}
-			//return true to continue visiting children.
+			// return true to continue visiting children.
 			return true;
 		}
 	}
 
 	/**
-	 * IResourceVisitor called to process all resources in our
-	 * project.
+	 * IResourceVisitor called to process all resources in our project.
 	 */
 	class ResourceVisitor implements IResourceVisitor {
 		public boolean visit(IResource resource) {
 			try {
 				process(resource);
 			} catch (Exception e) {
-				throw new IllegalStateException( e );
+				throw new IllegalStateException(e);
 			}
-			//return true to continue visiting children.
+			// return true to continue visiting children.
 			return true;
 		}
 	}
 
 	/**
 	 * Adds an Eclipse marker to a file.
+	 * 
 	 * @param file
 	 * @param message
 	 * @param lineNumber
@@ -146,47 +155,60 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 	}
 
 	/**
-	 * Handles removed resources. This method iterates on all JavaScript files in the project
-	 * and examines their Functions. If any Function is found that was generated from the removed
-	 * resource it is also removed.
+	 * Handles removed resources. This method iterates on all JavaScript files
+	 * in the project and examines their Functions. If any Function is found
+	 * that was generated from the removed resource it is also removed.
 	 * 
 	 * @param projectRelativePath
 	 */
 	public void processRemovedResource(final IPath projectRelativePath) {
-		
-		IJavaScriptModel model = JavaScriptCore.create(ResourcesPlugin.getWorkspace().getRoot());
+
+		IJavaScriptModel model = JavaScriptCore.create(ResourcesPlugin
+				.getWorkspace().getRoot());
 		try {
 			IJavaScriptProject[] projects = model.getJavaScriptProjects();
-			
-			for( IJavaScriptProject project : projects ) {
-				project.getProject().accept( new IResourceVisitor() {
+
+			for (IJavaScriptProject project : projects) {
+				project.getProject().accept(new IResourceVisitor() {
 					@Override
 					public boolean visit(IResource resource)
 							throws CoreException {
-						
-						if( JavaScriptCore.isJavaScriptLikeFileName( resource.getName() )) {
-							IJavaScriptUnit jsUnit = JavaScriptCore.createCompilationUnitFrom((IFile) resource);
-							
-							IFunction functions[] = jsUnit.getFunctions();
-							for( IFunction function : functions ) {
-								ISourceRange jsDocRange = function.getJSdocRange();
-								if( jsDocRange != null ) {
-									function.getJavaScriptUnit().open( null );
-									String text = function.getJavaScriptUnit().getBuffer().getText( jsDocRange.getOffset(), jsDocRange.getLength() );
-									if( isGenerated(text,projectRelativePath) ) {
-										JavaScriptUnit destRoot = createCU(jsUnit, false);
-										destRoot.recordModifications();
-										
-										FunctionDeclaration destFunction = findFunction( destRoot.statements(), function );
 
-										if( destFunction != null ) {
-											destRoot.statements().remove( destFunction );									
+						if (JavaScriptCore.isJavaScriptLikeFileName(resource
+								.getName())) {
+							IJavaScriptUnit jsUnit = JavaScriptCore
+									.createCompilationUnitFrom((IFile) resource);
+
+							IFunction functions[] = jsUnit.getFunctions();
+							for (IFunction function : functions) {
+								ISourceRange jsDocRange = function
+										.getJSdocRange();
+								if (jsDocRange != null) {
+									function.getJavaScriptUnit().open(null);
+									String text = function
+											.getJavaScriptUnit()
+											.getBuffer()
+											.getText(jsDocRange.getOffset(),
+													jsDocRange.getLength());
+									if (isGenerated(text, projectRelativePath)) {
+										JavaScriptUnit destRoot = createCU(
+												jsUnit, false);
+										destRoot.recordModifications();
+
+										FunctionDeclaration destFunction = findFunction(
+												destRoot.statements(), function);
+
+										if (destFunction != null) {
+											destRoot.statements().remove(
+													destFunction);
 										}
-										
+
 										String newContent;
 										try {
-											newContent = evaluateRewrite(jsUnit,destRoot);
-											jsUnit.getBuffer().setContents(newContent);
+											newContent = evaluateRewrite(
+													jsUnit, destRoot);
+											jsUnit.getBuffer().setContents(
+													newContent);
 										} catch (Exception e) {
 											e.printStackTrace();
 										}
@@ -195,27 +217,30 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 							}
 						}
 						return true;
-					}} );
+					}
+				});
 			}
-		
+
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
 
 	/**
-	 * Determines if the given JavaDoc snippet was generated from
-	 * the given path.
+	 * Determines if the given JavaDoc snippet was generated from the given
+	 * path.
+	 * 
 	 * @param text
 	 * @param path
 	 * @return
 	 */
 	protected boolean isGenerated(String text, IPath path) {
-		return text.contains( GENERATED_FROM + " " + path.toString() );
+		return text.contains(GENERATED_FROM + " " + path.toString());
 	}
-	
+
 	/**
 	 * Returns the value of the @generatedFrom tag for the given Function.
+	 * 
 	 * @param function
 	 * @return
 	 */
@@ -223,17 +248,17 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 		JSdoc jsdoc = function.getJavadoc();
 		List tags = jsdoc.tags();
 
-		for( Object thing : tags ) {
-			if( thing instanceof TagElement ) {
+		for (Object thing : tags) {
+			if (thing instanceof TagElement) {
 				TagElement tag = (TagElement) thing;
-				if( GENERATED_FROM.equals( tag.getTagName() ) ) {
-					if( tag.fragments().size() > 0 ) {
+				if (GENERATED_FROM.equals(tag.getTagName())) {
+					if (tag.fragments().size() > 0) {
 						return tag.fragments().get(0).toString();
 					}
 				}
 			}
 		}
-		
+
 		return null;
 	}
 
@@ -256,86 +281,139 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 	}
 
 	/**
-	 * Process added or changed resources. We look at all Functions in the resource and
-	 * any Function tagged with '@copyTo' are copied to a destination resource.
-	 * Any Functions with '@generatedFrom' whose source resource is missing are flagged
-	 * as in error.
+	 * Process added or changed resources. We look at all Functions in the
+	 * resource and any Function tagged with '@copyTo' are copied to a
+	 * destination resource. Any Functions with '@generatedFrom' whose source
+	 * resource is missing are flagged as in error.
 	 * 
 	 * @param resource
-	 * @throws org.eclipse.jface.text.BadLocationException 
-	 * @throws BadLocationException 
-	 * @throws CoreException 
-	 * @throws MalformedTreeException 
+	 * @throws org.eclipse.jface.text.BadLocationException
+	 * @throws BadLocationException
+	 * @throws CoreException
+	 * @throws MalformedTreeException
 	 */
-	void process(IResource resource) throws MalformedTreeException, CoreException, BadLocationException, org.eclipse.jface.text.BadLocationException {
-		if (resource instanceof IFile && JavaScriptCore.isJavaScriptLikeFileName(resource.getName())) {
-			IFile file = (IFile) resource;
-			deleteMarkers(file);
-			
-			IJavaScriptUnit srcUnit = JavaScriptCore.createCompilationUnitFrom(file);
-			IFunction functions[] = srcUnit.getFunctions();
-			for( IFunction function : functions ) {
-				ISourceRange jsDocRange = function.getJSdocRange();
-				if( jsDocRange != null ) {
-					function.getJavaScriptUnit().open( null );
-					JavaScriptUnit srcRoot= createCU(srcUnit, false);
-					FunctionDeclaration srcFunction = findFunction( srcRoot.statements(), function );
+	void process(IResource resource) throws MalformedTreeException,
+			CoreException, BadLocationException,
+			org.eclipse.jface.text.BadLocationException {
+		if (resource instanceof IFile) {
+			if (JavaScriptCore.isJavaScriptLikeFileName(resource.getName())) {
+				IFile file = (IFile) resource;
+				deleteMarkers(file);
 
-					String text = function.getJavaScriptUnit().getBuffer().getText( jsDocRange.getOffset(), jsDocRange.getLength() );
-					String[] destFiles = getCopyTo(text);
-					if( destFiles != null ) {
-						for( String destFile : destFiles ) {
-							IJavaScriptProject proj = srcUnit.getJavaScriptProject();
-							IResource destResource = ResourcesPlugin.getWorkspace().getRoot().findMember( proj.getPath().append(destFile.trim()) );
-							if( destResource instanceof IFile ) {
-								IJavaScriptUnit destUnit = JavaScriptCore.createCompilationUnitFrom( (IFile) destResource);
-								
-								JavaScriptUnit destRoot= createCU(destUnit, false);
-								destRoot.recordModifications();
-								
-								List statements = destRoot.statements();
-								FunctionDeclaration destFunction = findFunction( destRoot.statements(), function );
+				IJavaScriptUnit srcUnit = JavaScriptCore
+						.createCompilationUnitFrom(file);
+				IFunction functions[] = srcUnit.getFunctions();
+				for (IFunction function : functions) {
+					ISourceRange jsDocRange = function.getJSdocRange();
+					if (jsDocRange != null) {
+						function.getJavaScriptUnit().open(null);
+						JavaScriptUnit srcRoot = createCU(srcUnit, false);
+						FunctionDeclaration srcFunction = findFunction(
+								srcRoot.statements(), function);
 
-								if( destFunction != null ) {
-									destRoot.statements().remove( destFunction );									
+						String text = function
+								.getJavaScriptUnit()
+								.getBuffer()
+								.getText(jsDocRange.getOffset(),
+										jsDocRange.getLength());
+						String[] destFiles = getCopyTo(text);
+						if (destFiles != null) {
+							for (String destFile : destFiles) {
+								IJavaScriptProject proj = srcUnit
+										.getJavaScriptProject();
+								IResource destResource = ResourcesPlugin
+										.getWorkspace()
+										.getRoot()
+										.findMember(
+												proj.getPath().append(
+														destFile.trim()));
+								if (destResource instanceof IFile) {
+									IJavaScriptUnit destUnit = JavaScriptCore
+											.createCompilationUnitFrom((IFile) destResource);
+
+									JavaScriptUnit destRoot = createCU(
+											destUnit, false);
+									destRoot.recordModifications();
+
+									List statements = destRoot.statements();
+									FunctionDeclaration destFunction = findFunction(
+											destRoot.statements(), function);
+
+									if (destFunction != null) {
+										destRoot.statements().remove(
+												destFunction);
+									}
+
+									FunctionDeclaration newFunction = (FunctionDeclaration) ASTNode
+											.copySubtree(destRoot.getAST(),
+													srcFunction);
+									replaceCopyTo(newFunction, function);
+									destRoot.statements().add(newFunction);
+
+									String newContent = evaluateRewrite(
+											destUnit, destRoot);
+									destUnit.getBuffer()
+											.setContents(newContent);
+									destUnit.getBuffer().getOwner()
+											.save(null, true);
 								}
-								
-								FunctionDeclaration newFunction = (FunctionDeclaration)ASTNode.copySubtree(destRoot.getAST(), srcFunction);
-								replaceCopyTo(newFunction,function);
-								destRoot.statements().add(newFunction);
-								
-								String newContent = evaluateRewrite(destUnit,destRoot);
-								destUnit.getBuffer().setContents(newContent);
-								destUnit.getBuffer().getOwner().save(null, true );
 							}
 						}
-					}
-					
-					// create error markers on Functions that no longer have a source
-					String generatedFrom = getGeneratedFrom(srcFunction);
-					if( generatedFrom != null ) {
-						IResource res = ResourcesPlugin.getWorkspace().getRoot().findMember(generatedFrom.trim());
-						if( res == null ) {
-							addMarker( (IFile) resource, "Cannot find resource " + generatedFrom, function.getJSdocRange().getOffset()+function.getJSdocRange().getLength(), IMarker.SEVERITY_ERROR );
-						}
-						else {
-							if( res instanceof IFile ) {
-								IJavaScriptUnit refUnit = JavaScriptCore.createCompilationUnitFrom( (IFile) res);
-								if( refUnit.findFunctions( function ) == null ) {
-									addMarker( (IFile) resource, "Cannot find source function " + generatedFrom, function.getJSdocRange().getOffset()+function.getJSdocRange().getLength(), IMarker.SEVERITY_ERROR );									
+
+						// create error markers on Functions that no longer have
+						// a source
+						String generatedFrom = getGeneratedFrom(srcFunction);
+						if (generatedFrom != null) {
+							IResource res = ResourcesPlugin.getWorkspace()
+									.getRoot().findMember(generatedFrom.trim());
+							if (res == null) {
+								addMarker(
+										(IFile) resource,
+										"Cannot find resource " + generatedFrom,
+										function.getJSdocRange().getOffset()
+												+ function.getJSdocRange()
+														.getLength(),
+										IMarker.SEVERITY_ERROR);
+							} else {
+								if (res instanceof IFile) {
+									IJavaScriptUnit refUnit = JavaScriptCore
+											.createCompilationUnitFrom((IFile) res);
+									if (refUnit.findFunctions(function) == null) {
+										addMarker(
+												(IFile) resource,
+												"Cannot find source function "
+														+ generatedFrom,
+												function.getJSdocRange()
+														.getOffset()
+														+ function
+																.getJSdocRange()
+																.getLength(),
+												IMarker.SEVERITY_ERROR);
+									}
 								}
 							}
 						}
 					}
 				}
 			}
-		}
+			
+			// scp the file to the remote server
+			// note that at the moment the directory *must* exist
+			if( preferenceStore.getBoolean( PreferenceConstants.ENABLE_REMOTE_COPY ) ) {
+				scp.setTodir( preferenceStore.getString(PreferenceConstants.REMOTE_PATH) + resource.getFullPath().removeLastSegments(1) );
+				scp.setKeyfile( preferenceStore.getString(PreferenceConstants.PRIVATE_KEY) );
+				scp.setFile( resource.getLocation().toString() );
+				scp.setTrust(true);
+				scp.execute();
+			}
+			
+		} // file
 	}
-	
+
 	/**
-	 * After a Function is copied from source to destination
-	 * we replace the '@copyTo' tag to '@generatedFrom' and include
-	 * the path to the source resource.
+	 * After a Function is copied from source to destination we replace the
+	 * '@copyTo' tag to '@generatedFrom' and include the path to the source
+	 * resource.
 	 * 
 	 * @param newFunction
 	 * @param src
@@ -344,15 +422,15 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 		JSdoc jsdoc = newFunction.getJavadoc();
 		List tags = jsdoc.tags();
 
-		for( Object thing : tags ) {
-			if( thing instanceof TagElement ) {
+		for (Object thing : tags) {
+			if (thing instanceof TagElement) {
 				TagElement tag = (TagElement) thing;
-				if( COPY_TO.equals( tag.getTagName() ) ) {
-					tag.setTagName( GENERATED_FROM );
+				if (COPY_TO.equals(tag.getTagName())) {
+					tag.setTagName(GENERATED_FROM);
 					tag.fragments().clear();
 					TextElement text = newFunction.getAST().newTextElement();
-					text.setText( src.getJavaScriptUnit().getPath().toString() );
-					tag.fragments().add(text); 
+					text.setText(src.getJavaScriptUnit().getPath().toString());
+					tag.fragments().add(text);
 				}
 			}
 		}
@@ -360,31 +438,33 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 
 	/**
 	 * Finds a FunctionDeclaration in a list with a given name
+	 * 
 	 * @param statements
 	 * @param function
 	 * @return
 	 */
 	private FunctionDeclaration findFunction(List statements, IFunction function) {
-		for( Object thing : statements ) {
-			if( thing instanceof FunctionDeclaration ) {
+		for (Object thing : statements) {
+			if (thing instanceof FunctionDeclaration) {
 				FunctionDeclaration that = (FunctionDeclaration) thing;
-				if( function.getDisplayName().equals( that.getName().toString())) {
+				if (function.getDisplayName().equals(that.getName().toString())) {
 					return that;
 				}
 			}
 		}
-		
+
 		return null;
 	}
 
 	/**
-	 * Creates a JavaScriptUnit so we can access the AST for a 
-	 * IJavaScriptUnit.
+	 * Creates a JavaScriptUnit so we can access the AST for a IJavaScriptUnit.
+	 * 
 	 * @param unit
 	 * @param resolveBindings
 	 * @return
 	 */
-	private JavaScriptUnit createCU(IJavaScriptUnit unit, boolean resolveBindings) {
+	private JavaScriptUnit createCU(IJavaScriptUnit unit,
+			boolean resolveBindings) {
 
 		try {
 			ASTParser c = ASTParser.newParser(AST.JLS2);
@@ -400,6 +480,7 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 
 	/**
 	 * Applies AST changes
+	 * 
 	 * @param cu
 	 * @param astRoot
 	 * @return
@@ -417,6 +498,7 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 
 	/**
 	 * Applies AST changes
+	 * 
 	 * @param source
 	 * @param astRoot
 	 * @param options
@@ -437,8 +519,9 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 	}
 
 	/**
-	 * Returns the names of resources that the JavaDoc fragement that tags
-	 * a given fragment should be copied to.
+	 * Returns the names of resources that the JavaDoc fragement that tags a
+	 * given fragment should be copied to.
+	 * 
 	 * @param text
 	 * @return
 	 */
@@ -462,6 +545,7 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 
 	/**
 	 * Deletes an error marker on the given file
+	 * 
 	 * @param file
 	 */
 	private void deleteMarkers(IFile file) {
@@ -473,6 +557,7 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 
 	/**
 	 * Called by Eclipse to perform a full build.
+	 * 
 	 * @param monitor
 	 * @throws CoreException
 	 */
@@ -486,6 +571,7 @@ public class JavaScriptBuilder extends IncrementalProjectBuilder {
 
 	/**
 	 * Called by Eclipse to perform an incremental build
+	 * 
 	 * @param delta
 	 * @param monitor
 	 * @throws CoreException
